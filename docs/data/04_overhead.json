@@ -1,0 +1,94 @@
+{
+  "env": {
+    "gpu_smi": "NVIDIA RTX A6000, 595.71.05, 49140 MiB, 2100 MHz, 8001 MHz, 300.00 W",
+    "gpu_name": "NVIDIA RTX A6000",
+    "capability": "sm_86",
+    "sm_count": 84,
+    "total_mem_gib": 47.4,
+    "torch": "2.13.0+cu129",
+    "torch_cuda": "12.9",
+    "cudnn": 92000,
+    "python": "3.12.13",
+    "platform": "Linux-6.18.44-x86_64-with-glibc2.42",
+    "matmul_tf32": false,
+    "cudnn_tf32": true,
+    "seed": 0
+  },
+  "launch_floor": {
+    "host_issue_us": 11.971258005360141,
+    "device_per_kernel_us": 7.393424034118652,
+    "empty_synchronize_us": 4.601074004312977,
+    "queue_bound": true
+  },
+  "points": [
+    {
+      "batch": 1,
+      "cache_len": 512,
+      "n_kernels_per_step": 1459.0,
+      "sync_census": {
+        "per_step": {
+          "cudaDeviceSynchronize": 0.6666666666666666
+        },
+        "us_per_step": {
+          "cudaDeviceSynchronize": 454.41799999999995
+        },
+        "total_sync_us_per_step": 454.41799999999995,
+        "d2h_bytes_per_step": 0.0
+      },
+      "cuda_graph": {
+        "captured": true,
+        "eager_ms": 39.81692921469609,
+        "graph_ms": 24.568920995295045,
+        "removable_ms": 15.248008219401044,
+        "removable_pct": 38.29528926548443,
+        "speedup": 1.620621810063252
+      }
+    },
+    {
+      "batch": 8,
+      "cache_len": 512,
+      "n_kernels_per_step": 1458.6666666666667,
+      "sync_census": {
+        "per_step": {
+          "cudaDeviceSynchronize": 0.6666666666666666
+        },
+        "us_per_step": {
+          "cudaDeviceSynchronize": 461.7966666666667
+        },
+        "total_sync_us_per_step": 461.7966666666667,
+        "d2h_bytes_per_step": 0.0
+      },
+      "cuda_graph": {
+        "captured": true,
+        "eager_ms": 39.927316291133565,
+        "graph_ms": 29.655469774206477,
+        "removable_ms": 10.27184651692709,
+        "removable_pct": 25.726363480152312,
+        "speedup": 1.3463727465838786
+      }
+    },
+    {
+      "batch": 32,
+      "cache_len": 512,
+      "n_kernels_per_step": 1430.3333333333333,
+      "sync_census": {
+        "per_step": {
+          "cudaDeviceSynchronize": 0.6666666666666666
+        },
+        "us_per_step": {
+          "cudaDeviceSynchronize": 531.02
+        },
+        "total_sync_us_per_step": 531.02,
+        "d2h_bytes_per_step": 0.0
+      },
+      "cuda_graph": {
+        "captured": true,
+        "eager_ms": 48.67391088356574,
+        "graph_ms": 47.22819148252408,
+        "removable_ms": 1.4457194010416632,
+        "removable_pct": 2.970214175926833,
+        "speedup": 1.0306113648577169
+      }
+    }
+  ]
+}

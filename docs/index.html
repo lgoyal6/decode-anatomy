@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>decode-anatomy - "decode is memory-bound", measured</title>
+<meta name="description" content="On an RTX A6000 at batch 1, decode is neither memory-bound nor compute-bound: 38.3% of the step is not kernel work at all, and it vanishes with batching.">
+<meta property="og:title" content="decode-anatomy">
+<meta property="og:description" content="Compute never binds. The largest slice of a batch-1 decode step is launch overhead, and a CUDA graph removes 38.3% of it.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="gut">
+  <div>
+    <div class="eyebrow">lgoyal6 / decode-anatomy</div>
+    <h1>decode&#8209;anatomy<span class="dot">.</span></h1>
+    <p class="thesis">
+      "Decode is memory-bound" is the most repeated claim in LLM inference and
+      almost nobody attaches a number to it. Memory-bound against which ceiling,
+      on which card, at what batch size? The claim is usually made about a
+      datacentre GPU in FP8 and then applied to whatever hardware is on hand.
+    </p>
+    <p class="thesis">
+      Both ceilings measured on the card itself, then a real decode step
+      decomposed against them. <strong>At batch 1 the answer is neither: the
+      largest slice is not kernel work at all</strong>, and it disappears the
+      moment you batch.
+    </p>
+  </div>
+  <dl class="facts">
+    <div class="fact"><dt>removed by a CUDA graph</dt><dd>38.3% <small>at batch 1</small></dd></div>
+    <div class="fact"><dt>the same, at batch 32</dt><dd>3.0% <small>it batches away</small></dd></div>
+    <div class="fact"><dt>compute-bound share</dt><dd>0.0% <small>at every point measured</small></dd></div>
+    <div class="fact"><dt>measured ceilings</dt><dd>711 <small>GB/s, 93% of spec</small></dd></div>
+  </dl>
+</header>
+
+<section class="gut">
+  <div class="eyebrow">Figure 1</div>
+  <h2>How much of the step is just launching kernels</h2>
+  <p class="lead">
+    A CUDA graph replays the same work with the launches removed. What it saves is
+    what was never computation. Nearly 1,500 kernels go into one decode step.
+  </p>
+
+  <div class="figure">
+    <div class="figcap">
+      <span id="cap-what">Qwen2.5-7B-Instruct on an RTX A6000</span>
+      <span id="cap-where">eager against the same step captured as a graph</span>
+    </div>
+    <div class="toolbar">
+      <span class="picklabel">Batch</span>
+      <div class="pick" id="graphbatch" role="group" aria-label="Batch size"></div>
+    </div>
+    <canvas class="plot" id="plot-graph" width="1200" height="300"></canvas>
+    <dl class="readout">
+      <div><dt>eager step</dt><dd id="g-eager">-</dd></div>
+      <div><dt>as a graph</dt><dd id="g-graph">-</dd></div>
+      <div><dt>removable</dt><dd id="g-removable">-</dd></div>
+      <div><dt>speedup</dt><dd id="g-speedup">-</dd></div>
+      <div><dt>kernels per step</dt><dd id="g-kernels">-</dd></div>
+    </dl>
+    <div class="banner" id="g-banner">Loading.</div>
+  </div>
+
+  <h3>Why this number and not the profiler's</h3>
+  <p>
+    The profiler inflates precisely the quantity it is being used to measure,
+    running <strong>1.83x slower than clean wall time at batch 1</strong>, because
+    instrumenting launches makes launches expensive. So the headline comes from the
+    graph capture, where the comparison is between two real executions and neither
+    is being watched.
+  </p>
+</section>
+
+<section class="gut">
+  <div class="eyebrow">Figure 2</div>
+  <h2>Three verdicts, and the one that is always zero</h2>
+  <p class="lead">
+    Every kernel gets filed against the measured ceilings: near the memory roof,
+    near the compute roof, or far below both, which is latency-bound and not the
+    same thing as memory-bound. Non-kernel time is what is left over.
+  </p>
+
+  <div class="figure">
+    <div class="figcap">
+      <span>share of the profiled step</span>
+      <span id="cap-point">batch 1, 512 tokens of context</span>
+    </div>
+    <div class="toolbar">
+      <span class="picklabel">Batch</span>
+      <div class="pick" id="batch" role="group" aria-label="Batch"></div>
+      <div class="scrub">
+        <span class="picklabel">Context</span>
+        <input type="range" id="scrub" min="0" max="3" value="1" step="1">
+      </div>
+    </div>
+    <canvas class="plot" id="plot-split" width="1200" height="260"></canvas>
+    <dl class="readout">
+      <div><dt>memory-bound</dt><dd id="s-mem">-</dd></div>
+      <div><dt>compute-bound</dt><dd id="s-com">-</dd></div>
+      <div><dt>latency-bound</dt><dd id="s-lat">-</dd></div>
+      <div><dt>non-kernel</dt><dd id="s-non">-</dd></div>
+      <div><dt>throughput</dt><dd id="s-tok">-</dd></div>
+    </dl>
+    <div class="banner" id="s-banner">Loading.</div>
+  </div>
+
+  <p>
+    <strong>Compute-bound is 0.0% at all 28 points.</strong> The compute ceiling is
+    measured and it simply never binds, which is the part of the folk claim that
+    survives. What does not survive is the other half: filing everything else as
+    memory-bound hides that a large share of the step is below both ceilings, or
+    outside the kernels entirely.
+  </p>
+  <p>
+    These shares come from a profiled run, so they carry that 1.83x inflation and
+    the non-kernel slice reads larger here than the graph capture in Figure 1
+    measures. The shape across batch and context is what to read, not the absolute
+    height.
+  </p>
+</section>
+
+<section class="gut">
+  <div class="eyebrow">Figure 3</div>
+  <h2>Where it loses</h2>
+  <ul class="map">
+    <li>
+      <b>The same attention kernel reads as 11% of peak or 93% of peak</b>
+      depending only on which byte count you divide by. Both are defensible and
+      they give opposite verdicts, which is a problem with roofline analysis
+      rather than with this measurement.
+      <span class="where">results/06_attn_paths.json</span>
+    </li>
+    <li>
+      <b>The profiler inflates what it is measuring</b>, by 1.83x at batch 1. Every
+      profiled number on this page inherits that, which is why the headline does
+      not come from one.
+      <span class="where">results/04_overhead.json</span>
+    </li>
+    <li>
+      <b>One card, one model, one framework.</b> An RTX A6000 running Qwen2.5-7B
+      under PyTorch eager. The method transfers; these numbers do not.
+      <span class="where">results/01_roofline.json</span>
+    </li>
+    <li>
+      <b>Batch 1 is the interesting case and the unrepresentative one.</b> It is
+      where launch overhead dominates, and it is also not how anyone serves at
+      scale.
+      <span class="where">results/03_sweep.json</span>
+    </li>
+  </ul>
+</section>
+
+<footer class="gut">
+  <span>
+    <a href="https://github.com/lgoyal6/decode-anatomy">github.com/lgoyal6/decode-anatomy</a>
+    &middot; MIT
+  </span>
+  <span>
+    also: <a href="https://lgoyal6.github.io/ddp-crossover/">ddp-crossover</a>
+    &middot; <a href="https://lgoyal6.github.io/noisy-rag-bench/">noisy-rag-bench</a>
+    &middot; <a href="https://lgoyal6.github.io/strata/">strata</a>
+  </span>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
