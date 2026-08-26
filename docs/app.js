@@ -18,10 +18,13 @@ const VERDICTS = [
 
 const state = { overhead: [], sweep: [], gBatch: 1, batch: 1, ctxStep: 1, ctxs: [] };
 
-function fitCanvas(canvas, ratio) {
+// `size` is a fixed pixel height where the content does not scale with width,
+// which is the case for a bar chart of two bars: making it taller on a wider
+// screen only adds empty box.
+function fitCanvas(canvas, size) {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const w0 = canvas.clientWidth || 1200;
-  const h0 = Math.round(w0 * ratio);
+  const h0 = Math.round(size <= 1 ? w0 * size : size);
   canvas.width = Math.round(w0 * dpr);
   canvas.height = Math.round(h0 * dpr);
   canvas.style.height = h0 + 'px';
@@ -39,7 +42,7 @@ function drawGraph() {
   const g = p.cuda_graph;
   // Right padding leaves room for the duration printed past the bar's end, and
   // the height is only what two bars plus a caption need.
-  const { ctx, w, h } = fitCanvas(el('plot-graph'), 0.13);
+  const { ctx, w, h } = fitCanvas(el('plot-graph'), 132);
   const pad = { l: 92, r: 86, t: 22, b: 30 };
   const barH = 30;
   const span = w - pad.l - pad.r;
@@ -128,7 +131,7 @@ function point() {
 function drawSplit() {
   const p = point();
   if (!p) return;
-  const { ctx, w, h } = fitCanvas(el('plot-split'), 0.105);
+  const { ctx, w, h } = fitCanvas(el('plot-split'), 128);
   const pad = { l: 24, r: 24, t: 34, b: 56 };
   const barH = 46;
   const span = w - pad.l - pad.r;
