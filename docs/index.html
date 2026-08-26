@@ -40,8 +40,8 @@
   <div class="eyebrow">Figure 1</div>
   <h2>How much of the step is just launching kernels</h2>
   <p class="lead">
-    A CUDA graph replays the same work with the launches removed. What it saves is
-    what was never computation. Nearly 1,500 kernels go into one decode step.
+    A CUDA graph replays the same work with the launches removed, so what it saves
+    was never computation. Nearly 1,500 kernels go into one decode step.
   </p>
 
   <div class="figure">
@@ -64,14 +64,24 @@
     <div class="banner" id="g-banner">Loading.</div>
   </div>
 
-  <h3>Why this number and not the profiler's</h3>
-  <p>
-    The profiler inflates precisely the quantity it is being used to measure,
-    running <strong>1.83x slower than clean wall time at batch 1</strong>, because
-    instrumenting launches makes launches expensive. So the headline comes from the
-    graph capture, where the comparison is between two real executions and neither
-    is being watched.
-  </p>
+  <div class="split">
+    <div>
+      <h3>Why not just profile it</h3>
+      <p>
+        Because the profiler inflates the very thing being measured. Instrumenting
+        launches makes launches expensive, and at batch 1 it runs
+        <strong>1.83x slower than clean wall time</strong>. So the headline comes
+        from the graph capture, where two real executions are compared and neither
+        is being watched.
+      </p>
+    </div>
+    <dl class="takeaway">
+      <dt>take away</dt>
+      <dd>Launch overhead is a batch-1 problem.<small>38.3% at batch 1, 3.0% at batch 32.</small></dd>
+      <dt>if you serve at batch 1</dt>
+      <dd>Capture a CUDA graph.<small>1.62x, no kernel changes.</small></dd>
+    </dl>
+  </div>
 </section>
 
 <section class="gut">
@@ -107,19 +117,29 @@
     <div class="banner" id="s-banner">Loading.</div>
   </div>
 
-  <p>
-    <strong>Compute-bound is 0.0% at all 28 points.</strong> The compute ceiling is
-    measured and it simply never binds, which is the part of the folk claim that
-    survives. What does not survive is the other half: filing everything else as
-    memory-bound hides that a large share of the step is below both ceilings, or
-    outside the kernels entirely.
-  </p>
-  <p>
-    These shares come from a profiled run, so they carry that 1.83x inflation and
-    the non-kernel slice reads larger here than the graph capture in Figure 1
-    measures. The shape across batch and context is what to read, not the absolute
-    height.
-  </p>
+  <div class="split">
+    <div>
+      <p>
+        <strong>Compute-bound is 0.0% at all 28 points.</strong> The compute ceiling
+        is measured and never binds, which is the half of the folk claim that
+        survives. The half that does not: calling everything else memory-bound hides
+        that most of the step is below both ceilings, or outside the kernels.
+      </p>
+      <p>
+        These shares are profiled, so they carry the 1.83x inflation and the
+        non-kernel slice reads larger than Figure 1 measures. Read the shape across
+        batch and context, not the height.
+      </p>
+    </div>
+    <dl class="takeaway">
+      <dt>the claim</dt>
+      <dd>"Decode is memory-bound."</dd>
+      <dt>what holds</dt>
+      <dd>Compute never binds.<small>0.0% at every point.</small></dd>
+      <dt>what does not</dt>
+      <dd>Memory is not the biggest slice.<small>35.6% memory against 59.4% outside the kernels.</small></dd>
+    </dl>
+  </div>
 </section>
 
 <section class="gut">
@@ -127,16 +147,16 @@
   <h2>Where it loses</h2>
   <ul class="map">
     <li>
-      <b>The same attention kernel reads as 11% of peak or 93% of peak</b>
-      depending only on which byte count you divide by. Both are defensible and
-      they give opposite verdicts, which is a problem with roofline analysis
-      rather than with this measurement.
+      <b>One attention kernel reads as 11% of peak, or 93%.</b>
+      It depends only on which byte count you divide by. Both are defensible and
+      they give opposite verdicts, which is a problem with roofline analysis rather
+      than with this measurement.
       <span class="where">results/06_attn_paths.json</span>
     </li>
     <li>
-      <b>The profiler inflates what it is measuring</b>, by 1.83x at batch 1. Every
-      profiled number on this page inherits that, which is why the headline does
-      not come from one.
+      <b>The profiler inflates what it is measuring, by 1.83x at batch 1.</b>
+      Every profiled number here inherits that, which is why the headline does not
+      come from one.
       <span class="where">results/04_overhead.json</span>
     </li>
     <li>
@@ -145,8 +165,8 @@
       <span class="where">results/01_roofline.json</span>
     </li>
     <li>
-      <b>Batch 1 is the interesting case and the unrepresentative one.</b> It is
-      where launch overhead dominates, and it is also not how anyone serves at
+      <b>Batch 1 is the interesting case and the unrepresentative one.</b>
+      It is where launch overhead dominates, and it is not how anyone serves at
       scale.
       <span class="where">results/03_sweep.json</span>
     </li>
