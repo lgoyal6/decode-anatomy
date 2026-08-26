@@ -11,7 +11,21 @@
 </head>
 <body>
 
-<header class="gut">
+<nav class="topbar">
+  <a class="brand" href="https://lakshgoyal.com">Laksh Goyal<span>.</span></a>
+  <div class="navlinks">
+    <a href="https://github.com/lgoyal6/decode-anatomy">GitHub</a>
+    <a href="https://www.linkedin.com/in/lakshgoyal">LinkedIn</a>
+  </div>
+</nav>
+<nav class="tabs" aria-label="Sections">
+    <a href="#sec-home">Home</a>
+    <a href="#sec-overhead">Overhead</a>
+    <a href="#sec-verdicts">Verdicts</a>
+    <a href="#sec-limits">Limits</a>
+</nav>
+
+<header id="sec-home" class="gut">
   <div>
     <div class="eyebrow">lgoyal6 / decode-anatomy</div>
     <h1>decode&#8209;anatomy<span class="dot">.</span></h1>
@@ -36,7 +50,7 @@
   </dl>
 </header>
 
-<section class="gut">
+<section class="gut" id="sec-overhead">
   <div class="eyebrow">Figure 1</div>
   <h2>How much of the step is just launching kernels</h2>
   <p class="lead">
@@ -84,7 +98,7 @@
   </div>
 </section>
 
-<section class="gut">
+<section class="gut" id="sec-verdicts">
   <div class="eyebrow">Figure 2</div>
   <h2>Three verdicts, and the one that is always zero</h2>
   <p class="lead">
@@ -142,7 +156,7 @@
   </div>
 </section>
 
-<section class="gut">
+<section class="gut" id="sec-limits">
   <div class="eyebrow">Figure 3</div>
   <h2>Where it loses</h2>
   <ul class="map">
@@ -186,5 +200,6 @@
 </footer>
 
 <script src="app.js"></script>
+<script src="nav.js"></script>
 </body>
 </html>
