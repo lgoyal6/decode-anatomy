@@ -1,3 +1,9 @@
+<a href="https://lgoyal6.github.io/decode-anatomy/">
+  <img alt="decode-anatomy - open the live demo" src="docs/og.png">
+</a>
+
+**[Open the live demo](https://lgoyal6.github.io/decode-anatomy/)** - Drag the batch size and watch the decode step come apart into kernel time, gaps, and launch overhead, with the 38.3% that is not kernel work disappearing as you go.
+
 # decode-anatomy
 
 "Decode is memory-bound" is the most repeated claim in LLM inference and almost
