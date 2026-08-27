@@ -7,6 +7,12 @@
 <meta name="description" content="On an RTX A6000 at batch 1, decode is neither memory-bound nor compute-bound: 38.3% of the step is not kernel work at all, and it vanishes with batching.">
 <meta property="og:title" content="decode-anatomy">
 <meta property="og:description" content="Compute never binds. The largest slice of a batch-1 decode step is launch overhead, and a CUDA graph removes 38.3% of it.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="decode-anatomy">
+<meta property="og:description" content="On an RTX A6000 at batch 1, decode is neither memory-bound nor compute-bound: 38.3% of the step is not kernel work at all, and it vanishes with batching.">
+<meta property="og:url" content="https://lgoyal6.github.io/decode-anatomy/">
+<meta property="og:image" content="https://lgoyal6.github.io/decode-anatomy/og.png">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -191,11 +197,6 @@
   <span>
     <a href="https://github.com/lgoyal6/decode-anatomy">github.com/lgoyal6/decode-anatomy</a>
     &middot; MIT
-  </span>
-  <span>
-    also: <a href="https://lgoyal6.github.io/ddp-crossover/">ddp-crossover</a>
-    &middot; <a href="https://lgoyal6.github.io/noisy-rag-bench/">noisy-rag-bench</a>
-    &middot; <a href="https://lgoyal6.github.io/strata/">strata</a>
   </span>
 </footer>
 
