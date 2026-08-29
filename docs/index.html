@@ -26,8 +26,10 @@
 </nav>
 <nav class="tabs" aria-label="Sections">
     <a href="#sec-home">Home</a>
+    <a href="#sec-roofline">Roofline</a>
     <a href="#sec-overhead">Overhead</a>
     <a href="#sec-verdicts">Verdicts</a>
+    <a href="#sec-determinism">Determinism</a>
     <a href="#sec-limits">Limits</a>
 </nav>
 
@@ -56,8 +58,54 @@
   </dl>
 </header>
 
-<section class="gut" id="sec-overhead">
+<section class="gut" id="sec-roofline">
   <div class="eyebrow">Figure 1</div>
+  <h2>The two ceilings, measured on the card</h2>
+  <p class="lead">
+    Every verdict further down is relative to these two lines, so they are
+    measured on this card rather than read off a datasheet. The card does not
+    reach its own spec sheet in either direction.
+  </p>
+
+  <div class="figure">
+    <div class="figcap">
+      <span id="cap-roof">NVIDIA RTX A6000</span>
+      <span>32 GEMMs against the measured roofs</span>
+    </div>
+    <canvas class="plot" id="plot-roof" width="1200" height="420"></canvas>
+    <dl class="readout">
+      <div><dt>peak bandwidth</dt><dd id="r-bw">-</dd></div>
+      <div><dt>of quoted</dt><dd id="r-bwpct">-</dd></div>
+      <div><dt>peak bf16</dt><dd id="r-tf">-</dd></div>
+      <div><dt>of quoted</dt><dd id="r-tfpct">-</dd></div>
+      <div><dt>ridge point</dt><dd id="r-ridge">-</dd></div>
+    </dl>
+    <div class="banner" id="r-banner">Loading.</div>
+  </div>
+
+  <div class="split">
+    <div>
+      <h3>Why measure the roofs at all</h3>
+      <p>
+        A roofline drawn from the datasheet puts the ridge point in the wrong
+        place, and every verdict downstream moves with it. Measured here the
+        ridge sits at <strong>180.7 FLOP per byte</strong>. Anything to the left
+        of it cannot be compute-bound however much arithmetic it does, which is
+        what makes the compute-bound share in Figure 3 meaningful rather than
+        assumed.
+      </p>
+    </div>
+    <dl class="takeaway">
+      <dt>take away</dt>
+      <dd>Spec numbers are not ceilings.<small>711 GB/s against a quoted 768.</small></dd>
+      <dt>what it sets up</dt>
+      <dd>Every share in Figure 3.<small>Filed against these lines, not the datasheet.</small></dd>
+    </dl>
+  </div>
+</section>
+
+<section class="gut" id="sec-overhead">
+  <div class="eyebrow">Figure 2</div>
   <h2>How much of the step is just launching kernels</h2>
   <p class="lead">
     A CUDA graph replays the same work with the launches removed, so what it saves
@@ -105,7 +153,7 @@
 </section>
 
 <section class="gut" id="sec-verdicts">
-  <div class="eyebrow">Figure 2</div>
+  <div class="eyebrow">Figure 3</div>
   <h2>Three verdicts, and the one that is always zero</h2>
   <p class="lead">
     Every kernel gets filed against the measured ceilings: near the memory roof,
@@ -147,7 +195,7 @@
       </p>
       <p>
         These shares are profiled, so they carry the 1.83x inflation and the
-        non-kernel slice reads larger than Figure 1 measures. Read the shape across
+        non-kernel slice reads larger than Figure 2 measures. Read the shape across
         batch and context, not the height.
       </p>
     </div>
@@ -162,8 +210,57 @@
   </div>
 </section>
 
+<section class="gut" id="sec-determinism">
+  <div class="eyebrow">Figure 4</div>
+  <h2>What batching changes, and what it does not</h2>
+  <p class="lead">
+    Nine serving configurations over the same 200 prompts, greedy, one seed.
+    Prefix caching and batching move bytes: up to 15 of 200 completions come back
+    textually different. What is inside them almost never moves, and the score
+    never moves at all.
+  </p>
+
+  <div class="figure">
+    <div class="figcap">
+      <span id="cap-det">Qwen2.5-7B-Instruct, 200 prompts, 512 max tokens</span>
+      <span>completions that changed, out of 200</span>
+    </div>
+    <canvas class="plot" id="plot-matrix" width="1200" height="420"></canvas>
+    <dl class="readout">
+      <div><dt>worst byte drift</dt><dd id="d-worst">-</dd></div>
+      <div><dt>worst answer drift</dt><dd id="d-ans">-</dd></div>
+      <div><dt>accuracy spread</dt><dd id="d-acc">-</dd></div>
+      <div><dt>one engine, repeated</dt><dd id="d-self">-</dd></div>
+      <div><dt>earliest median divergence</dt><dd id="d-div">-</dd></div>
+    </dl>
+    <div class="banner" id="d-banner">Loading.</div>
+  </div>
+
+  <div class="split">
+    <div>
+      <p>
+        <strong>Accuracy is 88.5% in all nine conditions.</strong> Not close to
+        equal, equal. So byte-identical output is the wrong thing to gate a
+        serving change on: it fails under exactly the settings you turn on for
+        throughput, while the thing you actually care about is untouched.
+      </p>
+      <p>
+        The divergence is real rather than sampling noise. The same engine run
+        five times over is byte-identical every time, so what moves the bytes is
+        the batch a request lands in, not the decode.
+      </p>
+    </div>
+    <dl class="takeaway">
+      <dt>gate on this</dt>
+      <dd>Answer equality.<small>At worst 2 of 200 move.</small></dd>
+      <dt>not on this</dt>
+      <dd>Byte equality.<small>Up to 15 of 200 move, and it costs you nothing.</small></dd>
+    </dl>
+  </div>
+</section>
+
 <section class="gut" id="sec-limits">
-  <div class="eyebrow">Figure 3</div>
+  <div class="eyebrow">Figure 5</div>
   <h2>Where it loses</h2>
   <ul class="map">
     <li>

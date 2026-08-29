@@ -1,4 +1,4 @@
-// Draws results/04_overhead.json and results/03_sweep.json.
+// Draws results/01_roofline.json, 04_overhead.json, 03_sweep.json and 04_matrix.json.
 //
 // The two figures deliberately come from different measurements. Figure 1 is a
 // comparison between two real executions, neither of them profiled. Figure 2 is
@@ -16,7 +16,7 @@ const VERDICTS = [
   { key: 'compute-bound', label: 'compute-bound', colour: () => css('--ok'), hatch: false },
 ];
 
-const state = { overhead: [], sweep: [], gBatch: 1, batch: 1, ctxStep: 1, ctxs: [] };
+const state = { roof: null, matrix: null, overhead: [], sweep: [], gBatch: 1, batch: 1, ctxStep: 1, ctxs: [] };
 
 // `size` is a fixed pixel height where the content does not scale with width,
 // which is the case for a bar chart of two bars: making it taller on a wider
@@ -208,6 +208,237 @@ function renderSplit() {
         `${s['non-kernel'].toFixed(1)}% still outside the kernels.`;
 }
 
+// ---------------------------------------------------------- figure 1
+
+// One colour per precision. The roofs are bf16, so the fp32 and tf32 points sit
+// far under the compute roof by construction and are drawn dimmer: they are
+// context for the shape, not candidates for touching it.
+const DTYPES = [
+  { key: 'bf16', colour: () => css('--ox') },
+  { key: 'fp16', colour: () => css('--ok') },
+  { key: 'tf32', colour: () => css('--warn') },
+  { key: 'fp32', colour: () => css('--faint') },
+];
+
+function drawRoofline() {
+  const r = state.roof;
+  if (!r) return;
+  const { ctx, w, h } = fitCanvas(el('plot-roof'), 420);
+  const pad = { l: 62, r: 20, t: 20, b: 64 };
+  const iw = w - pad.l - pad.r;
+  const ih = h - pad.t - pad.b;
+
+  // Both axes are log. A roofline on linear axes is unreadable: the memory roof
+  // is a straight line only in log-log, which is the whole point of the chart.
+  const X0 = 32, X1 = 8192, Y0 = 4, Y1 = 256;
+  const lgx = Math.log10(X1) - Math.log10(X0);
+  const lgy = Math.log10(Y1) - Math.log10(Y0);
+  const px = (v) => pad.l + ((Math.log10(v) - Math.log10(X0)) / lgx) * iw;
+  const py = (v) => pad.t + ih - ((Math.log10(v) - Math.log10(Y0)) / lgy) * ih;
+
+  const bwTfPerFb = r.summary.peak_hbm_gbs / 1000; // GB/s x FLOP/byte -> GFLOP/s -> TFLOP/s
+  const roofTf = r.summary.peak_bf16_tflops;
+  const ridge = r.summary.ridge_point_flop_per_byte;
+
+  // grid and ticks
+  ctx.strokeStyle = css('--grid');
+  ctx.lineWidth = 1;
+  ctx.fillStyle = css('--faint');
+  ctx.font = "11px 'JetBrains Mono', ui-monospace, monospace";
+  for (let d = X0; d <= X1; d *= 2) {
+    const x = px(d);
+    ctx.beginPath(); ctx.moveTo(x, pad.t); ctx.lineTo(x, pad.t + ih); ctx.stroke();
+    ctx.textAlign = 'center';
+    ctx.fillText(String(d), x, pad.t + ih + 16);
+  }
+  for (let d = Y0; d <= Y1; d *= 2) {
+    const y = py(d);
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(pad.l + iw, y); ctx.stroke();
+    ctx.textAlign = 'right';
+    ctx.fillText(String(d), pad.l - 8, y + 4);
+  }
+
+  ctx.textAlign = 'center';
+  ctx.fillStyle = css('--sub');
+  ctx.font = "12px 'Inter', system-ui, sans-serif";
+  ctx.fillText('arithmetic intensity (FLOP / byte)', pad.l + iw / 2, pad.t + ih + 40);
+  ctx.save();
+  ctx.translate(16, pad.t + ih / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText('achieved TFLOP/s', 0, 0);
+  ctx.restore();
+
+  // the two roofs
+  ctx.strokeStyle = css('--ink');
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(px(X0), py(bwTfPerFb * X0));
+  ctx.lineTo(px(ridge), py(roofTf));
+  ctx.lineTo(px(X1), py(roofTf));
+  ctx.stroke();
+
+  // ridge point, where one roof stops binding and the other starts
+  ctx.setLineDash([4, 4]);
+  ctx.strokeStyle = css('--rule');
+  ctx.beginPath();
+  ctx.moveTo(px(ridge), py(roofTf));
+  ctx.lineTo(px(ridge), pad.t + ih);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = css('--sub');
+  ctx.font = "11px 'JetBrains Mono', ui-monospace, monospace";
+  ctx.textAlign = 'left';
+  ctx.fillText(`ridge ${ridge.toFixed(0)}`, px(ridge) + 6, pad.t + 14);
+
+  ctx.textAlign = 'right';
+  ctx.fillText(`${roofTf.toFixed(0)} TFLOP/s bf16`, pad.l + iw - 6, py(roofTf) - 8);
+  ctx.save();
+  const ax = px(X0) + 30, ay = py(bwTfPerFb * X0 * 1.9);
+  ctx.translate(ax, ay);
+  ctx.rotate(-Math.atan2(ih / lgy, iw / lgx));
+  ctx.textAlign = 'left';
+  ctx.fillText(`${r.summary.peak_hbm_gbs.toFixed(0)} GB/s`, 0, -6);
+  ctx.restore();
+
+  // measured GEMMs
+  r.gemm.forEach((g) => {
+    const d = DTYPES.find((t) => t.key === g.dtype);
+    if (!d) return;
+    ctx.fillStyle = d.colour();
+    ctx.beginPath();
+    ctx.arc(px(g.arith_intensity), py(g.tflops), 3.5, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  // legend
+  let lx = pad.l;
+  ctx.textAlign = 'left';
+  ctx.font = "12px 'Inter', system-ui, sans-serif";
+  DTYPES.forEach((d) => {
+    ctx.fillStyle = d.colour();
+    ctx.beginPath();
+    ctx.arc(lx + 5, pad.t + ih + 56, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = css('--sub');
+    ctx.fillText(d.key, lx + 14, pad.t + ih + 60);
+    lx += 14 + ctx.measureText(d.key).width + 22;
+  });
+}
+
+function renderRoofline() {
+  const r = state.roof;
+  if (!r) return;
+  const s = r.summary;
+  el('cap-roof').textContent = `${r.spec.name}, ${r.spec.arch}`;
+  el('r-bw').textContent = `${s.peak_hbm_gbs.toFixed(0)} GB/s`;
+  el('r-bwpct').textContent = `${s.peak_hbm_pct_of_spec.toFixed(1)}%`;
+  el('r-tf').textContent = `${s.peak_bf16_tflops.toFixed(1)} TFLOP/s`;
+  el('r-tfpct').textContent = `${s.peak_bf16_pct_of_spec.toFixed(1)}%`;
+  el('r-ridge').textContent = `${s.ridge_point_flop_per_byte.toFixed(1)}`;
+  drawRoofline();
+
+  el('r-banner').className = 'banner';
+  el('r-banner').textContent =
+    `Neither roof is the quoted one. Bandwidth tops out at ` +
+    `${s.peak_hbm_gbs.toFixed(0)} GB/s against a quoted ${r.spec.mem_bw_gbs.toFixed(0)}, and bf16 at ` +
+    `${s.peak_bf16_tflops.toFixed(1)} against a quoted ${r.spec.bf16_tensor_tflops.toFixed(1)}. ` +
+    `Drawing the roofline from the datasheet would move the ridge point and every verdict with it.`;
+}
+
+// ---------------------------------------------------------- figure 4
+
+function drawMatrix() {
+  const m = state.matrix;
+  if (!m) return;
+  const rows = m.rows;
+  const { ctx, w, h } = fitCanvas(el('plot-matrix'), 420);
+  const pad = { l: 128, r: 74, t: 18, b: 52 };
+  const iw = w - pad.l - pad.r;
+  const band = (h - pad.t - pad.b) / rows.length;
+  const barH = Math.min(9, band / 3);
+
+  // Counts, not percentages. The percentages all sit between 92 and 100, where a
+  // truthful axis shows nothing and a truncated one exaggerates; "15 of 200
+  // completions changed" is the same fact and it is readable.
+  const answersMoved = (r) => Math.round(((100 - r.answer_identical_pct) / 100) * m.n_prompts);
+  const MAX = 16;
+  const sx = iw / MAX;
+
+  ctx.strokeStyle = css('--grid');
+  ctx.lineWidth = 1;
+  ctx.fillStyle = css('--faint');
+  ctx.font = "11px 'JetBrains Mono', ui-monospace, monospace";
+  ctx.textAlign = 'center';
+  for (let n = 0; n <= MAX; n += 4) {
+    const x = pad.l + n * sx;
+    ctx.beginPath(); ctx.moveTo(x, pad.t); ctx.lineTo(x, pad.t + band * rows.length); ctx.stroke();
+    ctx.fillText(String(n), x, pad.t + band * rows.length + 16);
+  }
+  ctx.fillStyle = css('--sub');
+  ctx.font = "12px 'Inter', system-ui, sans-serif";
+  ctx.fillText(`completions that changed, of ${m.n_prompts}`, pad.l + iw / 2, pad.t + band * rows.length + 38);
+
+  rows.forEach((r, i) => {
+    const y = pad.t + i * band;
+    ctx.textAlign = 'right';
+    ctx.font = "12px 'JetBrains Mono', ui-monospace, monospace";
+    ctx.fillStyle = r.condition === 'reference' ? css('--faint') : css('--sub');
+    ctx.fillText(r.condition, pad.l - 10, y + band / 2 + 4);
+
+    const bytes = r.n_diverged;
+    const ans = answersMoved(r);
+    ctx.fillStyle = css('--warn');
+    ctx.fillRect(pad.l, y + band / 2 - barH - 1, bytes * sx, barH);
+    ctx.fillStyle = css('--bad');
+    ctx.fillRect(pad.l, y + band / 2 + 1, ans * sx, barH);
+
+    ctx.textAlign = 'left';
+    ctx.font = "11px 'JetBrains Mono', ui-monospace, monospace";
+    ctx.fillStyle = css('--faint');
+    ctx.fillText(`${bytes} / ${ans}`, pad.l + Math.max(bytes, ans) * sx + 8, y + band / 2 + 4);
+  });
+
+  // legend
+  let lx = pad.l;
+  ctx.textAlign = 'left';
+  ctx.font = "12px 'Inter', system-ui, sans-serif";
+  [['--warn', 'text changed'], ['--bad', 'answer changed']].forEach(([v, label]) => {
+    ctx.fillStyle = css(v);
+    ctx.fillRect(lx, pad.t + band * rows.length + 44, 13, 8);
+    ctx.fillStyle = css('--sub');
+    ctx.fillText(label, lx + 19, pad.t + band * rows.length + 52);
+    lx += 19 + ctx.measureText(label).width + 24;
+  });
+}
+
+function renderMatrix() {
+  const m = state.matrix;
+  if (!m) return;
+  const rows = m.rows;
+  const worst = rows.reduce((a, b) => (b.n_diverged > a.n_diverged ? b : a));
+  const answers = rows.map((r) => Math.round(((100 - r.answer_identical_pct) / 100) * m.n_prompts));
+  const accs = rows.map((r) => r.accuracy_pct);
+  const divs = rows.map((r) => r.median_first_divergence).filter((v) => v !== null);
+
+  el('d-worst').textContent = `${worst.n_diverged} / ${m.n_prompts}`;
+  el('d-ans').textContent = `${Math.max(...answers)} / ${m.n_prompts}`;
+  const spread = Math.max(...accs) - Math.min(...accs);
+  el('d-acc').textContent = spread === 0 ? `0.0 pts` : `${spread.toFixed(1)} pts`;
+  el('d-self').textContent = state.determinism && state.determinism.within_engine_all_identical
+    ? `${state.determinism.repeats}/${state.determinism.repeats} identical`
+    : 'not identical';
+  el('d-div').textContent = divs.length ? `token ${Math.min(...divs)}` : 'n/a';
+
+  drawMatrix();
+
+  el('d-banner').className = spread === 0 ? 'banner calm' : 'banner alarm';
+  el('d-banner').textContent =
+    spread === 0
+      ? `Every condition scores ${accs[0].toFixed(1)}%. The worst of them, ${worst.condition}, ` +
+        `returns different text for ${worst.n_diverged} of ${m.n_prompts} prompts and the same score for all of them.`
+      : `Accuracy moves by ${spread.toFixed(1)} points across the nine conditions.`;
+}
+
 // ---------------------------------------------------------- wiring
 
 function picker(node, items, current, onPick) {
@@ -225,14 +456,24 @@ function picker(node, items, current, onPick) {
 }
 
 async function main() {
-  const [oRes, sRes] = await Promise.all([
+  const [oRes, sRes, rRes, mRes, dRes] = await Promise.all([
     fetch('./data/04_overhead.json'),
     fetch('./data/03_sweep.json'),
+    fetch('./data/01_roofline.json'),
+    fetch('./data/04_matrix.json'),
+    fetch('./data/04_determinism.json'),
   ]);
   if (!oRes.ok || !sRes.ok) {
     el('g-banner').textContent = 'Could not load the measurements.';
     return;
   }
+  // The roofline and the matrix are independent of the two figures above, so a
+  // failure in either leaves the rest of the page working rather than blank.
+  state.roof = rRes.ok ? await rRes.json() : null;
+  state.matrix = mRes.ok ? await mRes.json() : null;
+  state.determinism = dRes.ok ? await dRes.json() : null;
+  if (!state.roof) el('r-banner').textContent = 'Could not load the roofline.';
+  if (!state.matrix) el('d-banner').textContent = 'Could not load the matrix.';
   state.overhead = (await oRes.json()).points;
   const sweep = await sRes.json();
   state.sweep = sweep.points;
@@ -257,10 +498,14 @@ async function main() {
   scrub.max = String(state.ctxs.length - 1);
   scrub.value = String(state.ctxStep);
   scrub.addEventListener('input', (e) => { state.ctxStep = Number(e.target.value); renderSplit(); });
-  window.addEventListener('resize', () => { renderGraph(); renderSplit(); });
+  window.addEventListener('resize', () => {
+    renderRoofline(); renderGraph(); renderSplit(); renderMatrix();
+  });
 
+  renderRoofline();
   renderGraph();
   renderSplit();
+  renderMatrix();
 }
 
 main();
