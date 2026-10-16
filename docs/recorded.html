@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>decode-anatomy - "decode is memory-bound", measured</title>
+<meta name="description" content="On an RTX A6000 at batch 1, decode is neither memory-bound nor compute-bound: 38.3% of the step is not kernel work at all, and it vanishes with batching.">
+<meta property="og:title" content="decode-anatomy">
+<meta property="og:description" content="Compute never binds. The largest slice of a batch-1 decode step is launch overhead, and a CUDA graph removes 38.3% of it.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="decode-anatomy">
+<meta property="og:description" content="On an RTX A6000 at batch 1, decode is neither memory-bound nor compute-bound: 38.3% of the step is not kernel work at all, and it vanishes with batching.">
+<meta property="og:url" content="https://lgoyal6.github.io/decode-anatomy/">
+<meta property="og:image" content="https://lgoyal6.github.io/decode-anatomy/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="topbar">
+  <a class="brand" href="https://lakshgoyal.com">Laksh Goyal</a>
+  <div class="navlinks">
+    <a href="https://github.com/lgoyal6/decode-anatomy"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg><span>GitHub</span></a>
+    <a href="https://www.linkedin.com/in/lakshgoyal"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M3.6 5.3H.9V15h2.7V5.3ZM2.25 1A1.55 1.55 0 1 0 2.25 4.1 1.55 1.55 0 0 0 2.25 1ZM15.1 9.6c0-2.6-1.4-3.8-3.25-3.8-1.5 0-2.17.82-2.55 1.4V5.3H6.6c.04.76 0 9.7 0 9.7h2.7V9.6c0-.24.02-.48.09-.65.19-.48.63-.98 1.37-.98.97 0 1.35.74 1.35 1.82V15h2.7Z"/></svg><span>LinkedIn</span></a>
+  </div>
+</nav>
+<nav class="tabs" aria-label="Sections">
+    <a href="#sec-home">Home</a>
+    <a href="#sec-roofline">Roofline</a>
+    <a href="#sec-overhead">Overhead</a>
+    <a href="#sec-verdicts">Verdicts</a>
+    <a href="#sec-determinism">Determinism</a>
+    <a href="#sec-limits">Limits</a>
+</nav>
+
+<header id="sec-home" class="gut">
+  <div>
+    <div class="eyebrow">lgoyal6 / decode-anatomy</div>
+    <h1>decode&#8209;anatomy<span class="dot">.</span></h1>
+    <p class="thesis">
+      "Decode is memory-bound" is the most repeated claim in LLM inference and
+      almost nobody attaches a number to it. Memory-bound against which ceiling,
+      on which card, at what batch size? The claim is usually made about a
+      datacentre GPU in FP8 and then applied to whatever hardware is on hand.
+    </p>
+    <p class="thesis">
+      Both ceilings measured on the card itself, then a real decode step
+      decomposed against them. <strong>At batch 1 the answer is neither: the
+      largest slice is not kernel work at all</strong>, and it disappears the
+      moment you batch.
+    </p>
+  </div>
+  <dl class="facts">
+    <div class="fact"><dt>removed by a CUDA graph</dt><dd>38.3% <small>at batch 1</small></dd></div>
+    <div class="fact"><dt>the same, at batch 32</dt><dd>3.0% <small>it batches away</small></dd></div>
+    <div class="fact"><dt>compute-bound share</dt><dd>0.0% <small>at every point measured</small></dd></div>
+    <div class="fact"><dt>measured ceilings</dt><dd>711 <small>GB/s, 93% of spec</small></dd></div>
+  </dl>
+</header>
+
+<section class="gut" id="sec-roofline">
+  <div class="eyebrow">Figure 1</div>
+  <h2>The two ceilings, measured on the card</h2>
+  <p class="lead">
+    Every verdict further down is relative to these two lines, so they are
+    measured on this card rather than read off a datasheet. The card does not
+    reach its own spec sheet in either direction.
+  </p>
+
+  <div class="figure">
+    <div class="figcap">
+      <span id="cap-roof">NVIDIA RTX A6000</span>
+      <span>32 GEMMs against the measured roofs</span>
+    </div>
+    <canvas class="plot" id="plot-roof" width="1200" height="420"></canvas>
+    <dl class="readout">
+      <div><dt>peak bandwidth</dt><dd id="r-bw">-</dd></div>
+      <div><dt>of quoted</dt><dd id="r-bwpct">-</dd></div>
+      <div><dt>peak bf16</dt><dd id="r-tf">-</dd></div>
+      <div><dt>of quoted</dt><dd id="r-tfpct">-</dd></div>
+      <div><dt>ridge point</dt><dd id="r-ridge">-</dd></div>
+    </dl>
+    <div class="banner" id="r-banner">Loading.</div>
+  </div>
+
+  <div class="split">
+    <div>
+      <h3>Why measure the roofs at all</h3>
+      <p>
+        A roofline drawn from the datasheet puts the ridge point in the wrong
+        place, and every verdict downstream moves with it. Measured here the
+        ridge sits at <strong>180.7 FLOP per byte</strong>. Anything to the left
+        of it cannot be compute-bound however much arithmetic it does, which is
+        what makes the compute-bound share in Figure 3 meaningful rather than
+        assumed.
+      </p>
+    </div>
+    <dl class="takeaway">
+      <dt>take away</dt>
+      <dd>Spec numbers are not ceilings.<small>711 GB/s against a quoted 768.</small></dd>
+      <dt>what it sets up</dt>
+      <dd>Every share in Figure 3.<small>Filed against these lines, not the datasheet.</small></dd>
+    </dl>
+  </div>
+</section>
+
+<section class="gut" id="sec-overhead">
+  <div class="eyebrow">Figure 2</div>
+  <h2>How much of the step is just launching kernels</h2>
+  <p class="lead">
+    A CUDA graph replays the same work with the launches removed, so what it saves
+    was never computation. Nearly 1,500 kernels go into one decode step.
+  </p>
+
+  <div class="figure">
+    <div class="figcap">
+      <span id="cap-what">Qwen2.5-7B-Instruct on an RTX A6000</span>
+      <span id="cap-where">eager against the same step captured as a graph</span>
+    </div>
+    <div class="toolbar">
+      <span class="picklabel">Batch</span>
+      <div class="pick" id="graphbatch" role="group" aria-label="Batch size"></div>
+    </div>
+    <canvas class="plot" id="plot-graph" width="1200" height="300"></canvas>
+    <dl class="readout">
+      <div><dt>eager step</dt><dd id="g-eager">-</dd></div>
+      <div><dt>as a graph</dt><dd id="g-graph">-</dd></div>
+      <div><dt>removable</dt><dd id="g-removable">-</dd></div>
+      <div><dt>speedup</dt><dd id="g-speedup">-</dd></div>
+      <div><dt>kernels per step</dt><dd id="g-kernels">-</dd></div>
+    </dl>
+    <div class="banner" id="g-banner">Loading.</div>
+  </div>
+
+  <div class="split">
+    <div>
+      <h3>Why not just profile it</h3>
+      <p>
+        Because the profiler inflates the very thing being measured. Instrumenting
+        launches makes launches expensive, and at batch 1 it runs
+        <strong>1.83x slower than clean wall time</strong>. So the headline comes
+        from the graph capture, where two real executions are compared and neither
+        is being watched.
+      </p>
+    </div>
+    <dl class="takeaway">
+      <dt>take away</dt>
+      <dd>Launch overhead is a batch-1 problem.<small>38.3% at batch 1, 3.0% at batch 32.</small></dd>
+      <dt>if you serve at batch 1</dt>
+      <dd>Capture a CUDA graph.<small>1.62x, no kernel changes.</small></dd>
+    </dl>
+  </div>
+</section>
+
+<section class="gut" id="sec-verdicts">
+  <div class="eyebrow">Figure 3</div>
+  <h2>Three verdicts, and the one that is always zero</h2>
+  <p class="lead">
+    Every kernel gets filed against the measured ceilings: near the memory roof,
+    near the compute roof, or far below both, which is latency-bound and not the
+    same thing as memory-bound. Non-kernel time is what is left over.
+  </p>
+
+  <div class="figure">
+    <div class="figcap">
+      <span>share of the profiled step</span>
+      <span id="cap-point">batch 1, 512 tokens of context</span>
+    </div>
+    <div class="toolbar">
+      <span class="picklabel">Batch</span>
+      <div class="pick" id="batch" role="group" aria-label="Batch"></div>
+      <div class="scrub">
+        <span class="picklabel">Context</span>
+        <input type="range" id="scrub" min="0" max="3" value="1" step="1">
+      </div>
+    </div>
+    <canvas class="plot" id="plot-split" width="1200" height="260"></canvas>
+    <dl class="readout">
+      <div><dt>memory-bound</dt><dd id="s-mem">-</dd></div>
+      <div><dt>compute-bound</dt><dd id="s-com">-</dd></div>
+      <div><dt>latency-bound</dt><dd id="s-lat">-</dd></div>
+      <div><dt>non-kernel</dt><dd id="s-non">-</dd></div>
+      <div><dt>throughput</dt><dd id="s-tok">-</dd></div>
+    </dl>
+    <div class="banner" id="s-banner">Loading.</div>
+  </div>
+
+  <div class="split">
+    <div>
+      <p>
+        <strong>Compute-bound is 0.0% at all 28 points.</strong> The compute ceiling
+        is measured and never binds, which is the half of the folk claim that
+        survives. The half that does not: calling everything else memory-bound hides
+        that most of the step is below both ceilings, or outside the kernels.
+      </p>
+      <p>
+        These shares are profiled, so they carry the 1.83x inflation and the
+        non-kernel slice reads larger than Figure 2 measures. Read the shape across
+        batch and context, not the height.
+      </p>
+    </div>
+    <dl class="takeaway">
+      <dt>the claim</dt>
+      <dd>"Decode is memory-bound."</dd>
+      <dt>what holds</dt>
+      <dd>Compute never binds.<small>0.0% at every point.</small></dd>
+      <dt>what does not</dt>
+      <dd>Memory is not the biggest slice.<small>35.6% memory against 59.4% outside the kernels.</small></dd>
+    </dl>
+  </div>
+</section>
+
+<section class="gut" id="sec-determinism">
+  <div class="eyebrow">Figure 4</div>
+  <h2>What batching changes, and what it does not</h2>
+  <p class="lead">
+    Nine serving configurations over the same 200 prompts, greedy, one seed.
+    Prefix caching and batching move bytes: up to 15 of 200 completions come back
+    textually different. What is inside them almost never moves, and the score
+    never moves at all.
+  </p>
+
+  <div class="figure">
+    <div class="figcap">
+      <span id="cap-det">Qwen2.5-7B-Instruct, 200 prompts, 512 max tokens</span>
+      <span>completions that changed, out of 200</span>
+    </div>
+    <canvas class="plot" id="plot-matrix" width="1200" height="420"></canvas>
+    <dl class="readout">
+      <div><dt>worst byte drift</dt><dd id="d-worst">-</dd></div>
+      <div><dt>worst answer drift</dt><dd id="d-ans">-</dd></div>
+      <div><dt>accuracy spread</dt><dd id="d-acc">-</dd></div>
+      <div><dt>one engine, repeated</dt><dd id="d-self">-</dd></div>
+      <div><dt>earliest median divergence</dt><dd id="d-div">-</dd></div>
+    </dl>
+    <div class="banner" id="d-banner">Loading.</div>
+  </div>
+
+  <div class="split">
+    <div>
+      <p>
+        <strong>Accuracy is 88.5% in all nine conditions.</strong> Not close to
+        equal, equal. So byte-identical output is the wrong thing to gate a
+        serving change on: it fails under exactly the settings you turn on for
+        throughput, while the thing you actually care about is untouched.
+      </p>
+      <p>
+        The divergence is real rather than sampling noise. The same engine run
+        five times over is byte-identical every time, so what moves the bytes is
+        the batch a request lands in, not the decode.
+      </p>
+    </div>
+    <dl class="takeaway">
+      <dt>gate on this</dt>
+      <dd>Answer equality.<small>At worst 2 of 200 move.</small></dd>
+      <dt>not on this</dt>
+      <dd>Byte equality.<small>Up to 15 of 200 move, and it costs you nothing.</small></dd>
+    </dl>
+  </div>
+</section>
+
+<section class="gut" id="sec-limits">
+  <div class="eyebrow">Figure 5</div>
+  <h2>Where it loses</h2>
+  <ul class="map">
+    <li>
+      <b>One attention kernel reads as 11% of peak, or 93%.</b>
+      It depends only on which byte count you divide by. Both are defensible and
+      they give opposite verdicts, which is a problem with roofline analysis rather
+      than with this measurement.
+      <span class="where">results/06_attn_paths.json</span>
+    </li>
+    <li>
+      <b>The profiler inflates what it is measuring, by 1.83x at batch 1.</b>
+      Every profiled number here inherits that, which is why the headline does not
+      come from one.
+      <span class="where">results/04_overhead.json</span>
+    </li>
+    <li>
+      <b>One card, one model, one framework.</b> An RTX A6000 running Qwen2.5-7B
+      under PyTorch eager. The method transfers; these numbers do not.
+      <span class="where">results/01_roofline.json</span>
+    </li>
+    <li>
+      <b>Batch 1 is the interesting case and the unrepresentative one.</b>
+      It is where launch overhead dominates, and it is not how anyone serves at
+      scale.
+      <span class="where">results/03_sweep.json</span>
+    </li>
+  </ul>
+</section>
+
+<footer class="gut">
+  <span>
+    <a href="https://github.com/lgoyal6/decode-anatomy">github.com/lgoyal6/decode-anatomy</a>
+    &middot; MIT
+  </span>
+</footer>
+
+<script src="app.js"></script>
+<script src="nav.js"></script>
+</body>
+</html>
